@@ -1,0 +1,4 @@
+可以看出是分配一页作为进程的栈，一页作为guard page
+所以page2是进程的栈，page1是guard page，看一下uvmclear可以发现guard page的PTE_U被设为0，用户模式代码访问的话硬件会产生一个page fault异常。
+
+防止溢出
