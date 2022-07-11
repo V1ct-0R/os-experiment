@@ -63,6 +63,7 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+int             refCntHelper(uint64 pa,char func);
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -156,6 +157,7 @@ int             uartgetc(void);
 // vm.c
 void            kvminit(void);
 void            kvminithart(void);
+pte_t*          walk(pagetable_t pagetable, uint64 va, int alloc);
 uint64          kvmpa(uint64);
 void            kvmmap(uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
@@ -171,6 +173,7 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+int             deal_cow_page(pagetable_t pagetable,uint64 va ,int usertrap);
 
 // plic.c
 void            plicinit(void);

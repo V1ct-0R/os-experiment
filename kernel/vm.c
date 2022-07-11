@@ -311,7 +311,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -319,14 +319,17 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
+    flags = PTE_FLAGS(*pte) ;
+
+    if(flags & PTE_W)//只有page可写时才标记为PTE_C
+    {
+       flags=(flags | PTE_C )& (~PTE_W);// set PTE_C clear PTE_W
+       *pte=PA2PTE(pa) | flags;
     }
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
+       goto err;
+    } 
+    refCntHelper(pa,'+');
   }
   return 0;
 
@@ -348,19 +351,65 @@ uvmclear(pagetable_t pagetable, uint64 va)
   *pte &= ~PTE_U;
 }
 
+int deal_cow_page(pagetable_t pagetable,uint64 va ,int usertrap)
+{
+    if(va>MAXVA) return -1;	
+    pte_t* pte;
+    
+    if((pte=walk(pagetable,va,0))==0) return -1;
+    
+    if( *pte & PTE_C) 
+    {
+	 uint64 old_pa=PTE2PA(*pte);
+	 uint64 flag=PTE_FLAGS(*pte)&(~PTE_C);//清空PTE_C
+	 //encounter a COW page(write to a page with PTE_W clear
+         char *new_pa=kalloc();//new_pa的ref cnt=1
+	
+         if(new_pa==0)
+	 {
+	    return -1;
+	 }
+         memmove(new_pa,(char *)old_pa,PGSIZE); 
+	 uvmunmap(pagetable,va,1,1);//uvmunmap的alloc参数设置为1 会对old_pa进行kfree old_pa的ref cnt--
+        
+	 if(mappages(pagetable,va,PGSIZE,(uint64)new_pa,flag|PTE_W)<0)
+	 {
+	      uvmunmap(pagetable,va,1,1); 
+	     return -1;
+	 }
+    }
+    else if(usertrap)//如果是usertrap中遇到 pagefault 同时不是cow page 那么需要按照普通Page fault处理
+    { 
+	 return -1;
+    }
+
+    return 0;
+}
+
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
+  
   uint64 n, va0, pa0;
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    
+    if(deal_cow_page(pagetable,va0,0)!=0)
+    {
+	    return -1;
+    }
+    //处理完cow page 可能va0映射的pa0发生变化
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
-      return -1;
+    {
+	return -1;
+    }
+    
+    
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;

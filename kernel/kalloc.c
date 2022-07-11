@@ -14,6 +14,8 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
+uint64 refCnt[(PHYSTOP-KERNBASE)/PGSIZE];//reference count for each physical page
+
 struct run {
   struct run *next;
 };
@@ -39,6 +41,22 @@ freerange(void *pa_start, void *pa_end)
     kfree(p);
 }
 
+int refCntHelper(uint64 pa,char func)
+{
+   // printf("cnt:%c\n",func);	
+   if(pa>=(uint64)end && pa<=PHYSTOP)
+   {
+       int offset=pa-(uint64)end; 
+       int idx=offset/PGSIZE;
+       if(func=='+') refCnt[idx]++;
+       else if(func=='-') refCnt[idx]==0?refCnt[idx]:refCnt[idx]--;
+       else if(func=='1') refCnt[idx]=1;
+       else if(func=='v') return refCnt[idx];// get value
+       return -1;
+   }
+   return 0;
+}
+
 // Free the page of physical memory pointed at by v,
 // which normally should have been returned by a
 // call to kalloc().  (The exception is when
@@ -50,7 +68,8 @@ kfree(void *pa)
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
-
+  refCntHelper((uint64)pa,'-');
+  if(refCntHelper((uint64)pa,'v')!=0) return;// only when ref cnt is 0,do a page need to be freed
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
@@ -75,7 +94,7 @@ kalloc(void)
   if(r)
     kmem.freelist = r->next;
   release(&kmem.lock);
-
+  if(r) refCntHelper((uint64)r,'1');
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;

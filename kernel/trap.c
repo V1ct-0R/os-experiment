@@ -65,6 +65,15 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause()==13 || r_scause()==15) {
+    
+      uint64 va=r_stval();
+      if(va>=MAXVA || (va<=PGROUNDDOWN(p->trapframe->sp) && va>=PGROUNDDOWN(p->trapframe->sp)-PGSIZE)) exit(-1);
+       va=PGROUNDDOWN(va);
+      if(deal_cow_page(p->pagetable,va,1)<0)
+      {
+	    exit(-1);  
+      }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
